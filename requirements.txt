@@ -1,4 +1,4 @@
 discord.py==2.6.0
-youtube_dl
+youtube-dlp
 PyNaCl
 Flask
