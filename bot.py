@@ -8,7 +8,7 @@ import os
 
 TOKEN = os.environ.get("DISCORD_TOKEN")
 
-# -------------------- Flask part to keep Render alive --------------------
+# -------------------- Flask (keep Render alive) --------------------
 app = Flask("")
 
 @app.route("/")
@@ -26,63 +26,74 @@ def keep_alive():
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
-bot = commands.Bot(command_prefix="/", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-# yt-dlp options
+# yt-dlp setup
 ytdl_format_options = {
     'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
-    'extract_flat': 'in_playlist',
     'ignoreerrors': True,
     'nocheckcertificate': True,
 }
-
 ffmpeg_options = {
     'options': '-vn'
 }
-
 ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
 
-# -------------------- Song Queue per guild --------------------
+# Queues per server
 queues = {}  # {guild_id: [song1, song2, ...]}
 
+# -------------------- Music Functions --------------------
 async def play_next(ctx):
     guild_id = ctx.guild.id
     if queues.get(guild_id):
         song = queues[guild_id].pop(0)
-        info = ytdl.extract_info(f"ytsearch:{song}", download=False)['entries'][0]
-        url = info['url']
-        source = await discord.FFmpegOpusAudio.from_probe(url, **ffmpeg_options)
-        ctx.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
-        await ctx.send(f"Now playing: {info['title']}")
-    else:
-        await ctx.voice_client.disconnect()
-        await ctx.send("Queue ended, leaving the voice channel.")
 
-# -------------------- Bot Events --------------------
+        # Search on YouTube
+        info = ytdl.extract_info(f"ytsearch:{song}", download=False)
+        if not info or not info.get("entries"):
+            await ctx.send(f"❌ Couldn't find anything for: {song}")
+            return await play_next(ctx)  # Try next song if available
+
+        entry = info["entries"][0]
+        url = entry["url"]
+
+        try:
+            source = discord.FFmpegPCMAudio(url, **ffmpeg_options)
+            ctx.voice_client.play(
+                discord.PCMVolumeTransformer(source),
+                after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
+            )
+            await ctx.send(f"🎶 Now playing: **{entry['title']}**")
+        except Exception as e:
+            await ctx.send(f"⚠️ Error playing {song}: {e}")
+            await play_next(ctx)
+    else:
+        await ctx.send("✅ Queue ended! Add more songs with `!play <song name>`.")
+
+# -------------------- Commands --------------------
 @bot.event
 async def on_ready():
     print(f"{bot.user} is online!")
 
-# -------------------- Music Commands --------------------
 @bot.command()
 async def join(ctx):
     if ctx.author.voice:
         channel = ctx.author.voice.channel
         await channel.connect()
-        await ctx.send(f"Joined {channel.name}")
+        await ctx.send(f"✅ Joined **{channel.name}**")
     else:
-        await ctx.send("You need to be in a voice channel!")
+        await ctx.send("❌ You need to be in a voice channel!")
 
 @bot.command()
 async def leave(ctx):
     if ctx.voice_client:
         await ctx.voice_client.disconnect()
         queues.pop(ctx.guild.id, None)
-        await ctx.send("Left the voice channel!")
+        await ctx.send("👋 Left the voice channel!")
     else:
-        await ctx.send("I'm not in a voice channel!")
+        await ctx.send("❌ I'm not in a voice channel!")
 
 @bot.command()
 async def play(ctx, *, song_name):
@@ -92,52 +103,51 @@ async def play(ctx, *, song_name):
             channel = ctx.author.voice.channel
             await channel.connect()
         else:
-            return await ctx.send("You're not in a voice channel!")
+            return await ctx.send("❌ You're not in a voice channel!")
 
     if guild_id not in queues:
         queues[guild_id] = []
 
     queues[guild_id].append(song_name)
 
-    # If nothing is playing, start playing immediately
     if not ctx.voice_client.is_playing() and len(queues[guild_id]) == 1:
         await play_next(ctx)
     else:
-        await ctx.send(f"Added to queue: {song_name}")
+        await ctx.send(f"➕ Added to queue: **{song_name}**")
 
 @bot.command()
 async def pause(ctx):
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.pause()
-        await ctx.send("Music paused!")
+        await ctx.send("⏸️ Music paused!")
     else:
-        await ctx.send("Nothing is playing.")
+        await ctx.send("❌ Nothing is playing!")
 
 @bot.command()
 async def resume(ctx):
     if ctx.voice_client and ctx.voice_client.is_paused():
         ctx.voice_client.resume()
-        await ctx.send("Music resumed!")
+        await ctx.send("▶️ Music resumed!")
     else:
-        await ctx.send("Nothing is paused.")
+        await ctx.send("❌ Nothing is paused!")
 
 @bot.command()
 async def stop(ctx):
     if ctx.voice_client:
         ctx.voice_client.stop()
         queues[ctx.guild.id] = []
-        await ctx.send("Music stopped and queue cleared!")
+        await ctx.send("⛔ Music stopped and queue cleared!")
     else:
-        await ctx.send("Nothing is playing.")
+        await ctx.send("❌ Nothing is playing!")
 
 @bot.command()
 async def skip(ctx):
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.stop()
-        await ctx.send("Skipped current song!")
+        await ctx.send("⏭️ Skipped current song!")
     else:
-        await ctx.send("Nothing is playing.")
+        await ctx.send("❌ Nothing is playing!")
 
-# -------------------- Keep bot alive --------------------
+# -------------------- Keep alive and run --------------------
 keep_alive()
 bot.run(TOKEN)
