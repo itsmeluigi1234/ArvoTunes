@@ -28,21 +28,24 @@ intents.message_content = True
 intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# yt-dlp setup
+# yt-dlp setup (better for newer songs)
 ytdl_format_options = {
-    'format': 'bestaudio/best',
+    'format': 'bestaudio[ext=m4a]/bestaudio/best',
     'noplaylist': True,
     'quiet': True,
     'ignoreerrors': True,
     'nocheckcertificate': True,
+    'default_search': 'ytsearch',
 }
+
 ffmpeg_options = {
-    'options': '-vn'
+    'options': '-vn -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5'
 }
+
 ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
 
-# Queues per server
-queues = {}  # {guild_id: [song1, song2, ...]}
+# Queue per guild
+queues = {}  # {guild_id: [song1, song2,...]}
 
 # -------------------- Music Functions --------------------
 async def play_next(ctx):
@@ -50,14 +53,23 @@ async def play_next(ctx):
     if queues.get(guild_id):
         song = queues[guild_id].pop(0)
 
-        # Search on YouTube
+        # Search YouTube
         info = ytdl.extract_info(f"ytsearch:{song}", download=False)
         if not info or not info.get("entries"):
             await ctx.send(f"❌ Couldn't find anything for: {song}")
-            return await play_next(ctx)  # Try next song if available
+            return await play_next(ctx)  # try next song
 
-        entry = info["entries"][0]
-        url = entry["url"]
+        # Find first playable entry
+        url = None
+        title = None
+        for entry in info["entries"]:
+            url = entry.get("url")
+            title = entry.get("title")
+            if url:
+                break
+        if not url:
+            await ctx.send(f"❌ Couldn't find a playable version for: {song}")
+            return await play_next(ctx)
 
         try:
             source = discord.FFmpegPCMAudio(url, **ffmpeg_options)
@@ -65,14 +77,14 @@ async def play_next(ctx):
                 discord.PCMVolumeTransformer(source),
                 after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
             )
-            await ctx.send(f"🎶 Now playing: **{entry['title']}**")
+            await ctx.send(f"🎶 Now playing: **{title}**")
         except Exception as e:
             await ctx.send(f"⚠️ Error playing {song}: {e}")
             await play_next(ctx)
     else:
         await ctx.send("✅ Queue ended! Add more songs with `!play <song name>`.")
 
-# -------------------- Commands --------------------
+# -------------------- Bot Commands --------------------
 @bot.event
 async def on_ready():
     print(f"{bot.user} is online!")
@@ -98,6 +110,7 @@ async def leave(ctx):
 @bot.command()
 async def play(ctx, *, song_name):
     guild_id = ctx.guild.id
+
     if not ctx.voice_client:
         if ctx.author.voice:
             channel = ctx.author.voice.channel
@@ -148,6 +161,6 @@ async def skip(ctx):
     else:
         await ctx.send("❌ Nothing is playing!")
 
-# -------------------- Keep alive and run --------------------
+# -------------------- Keep bot alive --------------------
 keep_alive()
 bot.run(TOKEN)
