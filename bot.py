@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-import yt_dlp as youtube_dl
+import yt_dlp
 from flask import Flask
 import threading
 import asyncio
@@ -26,7 +26,7 @@ def keep_alive():
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="/", intents=intents)
 
 # yt-dlp options
 ytdl_format_options = {
@@ -42,7 +42,7 @@ ffmpeg_options = {
     'options': '-vn'
 }
 
-ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
+ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
 
 # -------------------- Song Queue per guild --------------------
 queues = {}  # {guild_id: [song1, song2, ...]}
