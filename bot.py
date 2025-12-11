@@ -36,6 +36,7 @@ ytdl_format_options = {
     'ignoreerrors': True,
     'nocheckcertificate': True,
     'default_search': 'ytsearch',
+    'cookiefile': 'cookies.txt',  # <-- your cookies.txt here
 }
 
 ffmpeg_options = {
@@ -54,21 +55,27 @@ async def play_next(ctx):
         song = queues[guild_id].pop(0)
 
         # Search YouTube
-        info = ytdl.extract_info(f"ytsearch:{song}", download=False)
-        if not info or not info.get("entries"):
-            await ctx.send(f"❌ Couldn't find anything for: {song}")
-            return await play_next(ctx)  # try next song
+        try:
+            info = ytdl.extract_info(f"ytsearch:{song}", download=False)
+            entries = info.get("entries") if info else None
+            if not entries:
+                await ctx.send(f"❌ Could not find a playable version for: {song}")
+                return await play_next(ctx)  # try next song
 
-        # Find first playable entry
-        url = None
-        title = None
-        for entry in info["entries"]:
-            url = entry.get("url")
-            title = entry.get("title")
-            if url:
-                break
-        if not url:
-            await ctx.send(f"❌ Couldn't find a playable version for: {song}")
+            # Find first playable entry
+            url = None
+            title = None
+            for entry in entries:
+                if entry:
+                    url = entry.get("url")
+                    title = entry.get("title")
+                    if url:
+                        break
+            if not url:
+                await ctx.send(f"❌ Could not find a playable version for: {song}")
+                return await play_next(ctx)
+        except Exception as e:
+            await ctx.send(f"⚠️ Error fetching song info: {e}")
             return await play_next(ctx)
 
         try:
@@ -93,7 +100,10 @@ async def on_ready():
 async def join(ctx):
     if ctx.author.voice:
         channel = ctx.author.voice.channel
-        await channel.connect()
+        if ctx.voice_client:
+            await ctx.voice_client.move_to(channel)
+        else:
+            await channel.connect()
         await ctx.send(f"✅ Joined **{channel.name}**")
     else:
         await ctx.send("❌ You need to be in a voice channel!")
